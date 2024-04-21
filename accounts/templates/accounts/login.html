@@ -1,0 +1,21 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Pamine Live selling</title>
+        <link rel="stylesheet" href="{% static '/css/styel.css' %}">
+        <link rel="stylesheet" href="{% static '/css/upload.css' %}">
+        
+    </head>
+    <body style=" background-image: url({% static '/image/picbg.jpg' %});">
+        <div class="login-form">
+        <h1>Log in Now {{ test }}</h1>
+            <form method="POST">
+                {% csrf_token %}
+                {{ form.as_p }}
+                <button type="submit" class="sign-up-btn">Login</button>
+                <p>Don't have an account? Click <a href="{% url 'presignup' %}">Sign Up</a></p>
+            </form>    
+        </div>
+    </body>
+</html>

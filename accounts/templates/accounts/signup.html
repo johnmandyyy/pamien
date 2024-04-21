@@ -1,0 +1,43 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Pamine Live selling</title>
+        <link rel="stylesheet" href="{% static '/css/styel.css' %}">
+        <link rel="stylesheet" href="{% static '/css/upload.css' %}">
+    </head>
+    <body>
+        <div class="sign-up-form">
+        <h1>Sign up Now </h1>
+            <form id="form-container" method="POST" enctype="multipart/form-data">
+                {% if messages %}
+                <div style="display:block">
+                <ul class="messages">
+                    {% for message in messages %}
+                    <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+                    {% endfor %}
+                </ul>
+                </div>
+                {% endif %}
+                {% csrf_token %}
+                <input type="text" name="otp" value="" placeholder="Code" class="input-box" maxlength="6" autofocus="" required="">
+                {{ form.username }}<br>{{form.username.errors}}
+                {{ form.password1 }}<br>{{form.password1.errors}}
+                {{ form.password2 }}<br>{{form.password2.errors}}
+                {{ form.first_name }}<br>{{form.first_name.errors}}
+                {{ form.last_name }}<br>{{form.last_name.errors}}
+                {{ form.phone }}<br>{{form.phone.errors}}
+                {{ form.address }}<br>{{form.address.errors}}
+                <label for="id">Choose Account type:</label>
+                {{ form.account_type }}<br>{{form.account_type.errors}}
+                <h3>Upload Valid ID </h3>
+                <label for="id">Choose a Valid ID:</label>
+                {{ form.id_options }}<br>{{form.id_options.errors}}
+                {{ form.id_image }}<br>{{form.id_image.errors}}
+                <button type="submit" class="sign-up-btn">Sign up</button>
+                <p>OTP Expired?<a href="{% url 'presignup' %}">Pre-Sign up</a></p>
+                <p>Do you have an account?<a href="{% url 'login' %}">Sign in</a></p>
+            </form>    
+        </div>
+    </body>
+</html>
