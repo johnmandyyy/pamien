@@ -12,7 +12,7 @@ import os
 from channels.routing import ProtocolTypeRouter, URLRouter
 from django.core.asgi import get_asgi_application
 from channels.auth import AuthMiddlewareStack
-import accounts.routing
+from accounts import routing
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'crm1.settings')
 # Initialize Django ASGI application early to ensure the AppRegistry
@@ -24,7 +24,7 @@ application = ProtocolTypeRouter({
     # Just HTTP for now. (We can add other protocols later.)
     "websocket": AuthMiddlewareStack (
         URLRouter(
-            accounts.routing.websocket_urlpatterns
+            routing.websocket_urlpatterns
         )
     )
 })

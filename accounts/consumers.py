@@ -1,7 +1,8 @@
 import json
-from django.contrib.auth.models import User
-from .models import PersonAccount
+#from django.contrib.auth.models import User
+#from .models import PersonAccount
 from channels.generic.websocket import AsyncWebsocketConsumer
+#from django.contrib.auth.models import User
 
 class LiveStreamConsumer(AsyncWebsocketConsumer):
     async def connect(self):
