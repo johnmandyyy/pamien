@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-@j5zjew-o@ww=&#5$4-gso0*-67&))^!2#0^3qt(od(5i^(%l0
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*", "127.0.0.1", "0.0.0.0", "3.25.112.176"]
 
 
 # Application definition
@@ -40,6 +40,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'accounts',
+    'corsheaders',
+    'sslserver',
+    'django_extensions'
 ]
 
 # AUTH_USER_MODEL = 'accounts.PersonAccount'
@@ -52,6 +55,16 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware'
+]
+
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = [
+    'http://127.0.0.1',
+    'http://ec2-3-25-112-176.ap-southeast-2.compute.amazonaws.com',
+    'http://localhost',
+    'http://3.25.112.176'
 ]
 
 ROOT_URLCONF = 'crm1.urls'
@@ -81,11 +94,11 @@ WSGI_APPLICATION = 'crm1.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'pamine',
-        'USER': 'root',
-        'PASSWORD': '',
-        'HOST': 'localhost',
-        'PORT': '3306'
+        'NAME': 'pamine',  # Replace with your MySQL database name
+        'USER': 'root',  # Replace with your MySQL username
+        'PASSWORD': 'aINGReantINGoterIGhToMoNeLArYsen',  # Replace with your MySQL password
+        'HOST': '127.0.0.1',  # Or replace with your MySQL host if different
+        'PORT': '3306',  # Or replace with your MySQL port if different
     }
 }
 
