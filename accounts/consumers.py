@@ -28,7 +28,11 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
         message_type = text_data_json.get('type', 'chat')  # Default to 'chat' if no type is provided
         # user_data = self.scope.get('user').username  # Fetch user data (username)
         user = self.scope.get('user')
-        first_name = user.first_name
+        if(user.first_name):
+            first_name = user.first_name
+        else:
+            first_name = 'Anonymous'
+        
         # account_type = 'Seller'
         # acc_profile = PersonAccount.objects.filter(user=user).first()
         # if acc_profile:
