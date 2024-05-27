@@ -1,9 +1,12 @@
 import json
+from django.contrib.auth.models import User
+from .models import PersonAccount
 from channels.generic.websocket import AsyncWebsocketConsumer
 
-class ChatConsumer(AsyncWebsocketConsumer):
+class LiveStreamConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.room_group_name = 'TestRoom'
+        self.room_name = 'livestream'
+        self.room_group_name = 'livestream_group'
 
         await self.channel_layer.group_add(
             self.room_group_name,
@@ -17,40 +20,38 @@ class ChatConsumer(AsyncWebsocketConsumer):
             self.room_group_name,
             self.channel_name
         )
-        print('Disconnected')
 
     async def receive(self, text_data):
-        receive_dict = json.loads(text_data)
-        print(receive_dict)
-        message = receive_dict['message']
-        action = receive_dict['action']
-
-        if(action == 'new-offer') or (action =='new-answer'):
-            receiver_channel_name = receive_dict['message']['receiver_channel_name']
-
-            receive_dict['message']['receiver_channel_name'] = self.channel_name
-
-            await self.channel_layer.send(
-                receiver_channel_name,
-                {
-                    'type': 'send.sdp',
-                    'receive_dict': receive_dict
-                }
-            )
-
-
-            return
-
-        receive_dict['message']['receiver_channel_name'] = self.channel_name
+        text_data_json = json.loads(text_data)
+        message = text_data_json['message']
+        message_type = text_data_json.get('type', 'chat')  # Default to 'chat' if no type is provided
+        # user_data = self.scope.get('user').username  # Fetch user data (username)
+        user = self.scope.get('user')
+        first_name = user.first_name
+        # account_type = 'Seller'
+        # acc_profile = PersonAccount.objects.filter(user=user).first()
+        # if acc_profile:
+        #     account_type = acc_profile.usertype
 
         await self.channel_layer.group_send(
             self.room_group_name,
             {
-                'type': 'send.sdp',
-                'receive_dict': receive_dict
+                'type': 'livestream_message',
+                'message': message,
+                'message_type': message_type,
+                'user': first_name,
+                # 'account_type' : account_type,
             }
         )
-    
-    async def send_sdp(self, event):
-        receive_dict = event['receive_dict']
-        await self.send(text_data=json.dumps(receive_dict))
+
+    async def livestream_message(self, event):
+        message = event['message']
+        message_type = event['message_type']
+        user_data = event.get('user', 'Anonymous')  # Get user data from the event or default to 'Anonymous'
+        # account_type = event['account_type']
+        await self.send(text_data=json.dumps({
+            'message': message,
+            'type': message_type,
+            'user': user_data,
+            # 'account_type' : account_type,
+        }))
