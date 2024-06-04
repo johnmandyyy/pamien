@@ -169,12 +169,12 @@
                   <div class="row">
                       <video id="live-video" class="mh-100" style="width:100%;height:550px;border:1px solid black" autoplay playsinline></video>
                   </div>
+                  {% if user.account_type == 'Seller' %}
                   <div class="row">
                       <div class="col"><button id="btn-toggle-audio" class="btn btn-danger">MUTE</button></div>
                       <div class="col"><button id="btn-toggle-video" class="btn btn-danger">OFF VIDEO</button></div>
                   </div>
                   <br/>
-                  {% if user.account_type == 'Seller' %}
                   <div class="row">
                       <div class="col"><button id="btn-end" class="btn btn-danger" onclick="location.href='{% url 'endLive' id 'END' %}'">END LIVE</button></div>
                   </div>
@@ -186,81 +186,219 @@
                     <ul id="chatbox" style="height:550px;width:100%;border:1px solid black">
                     </ul>
                   <input type="text" id="messageTxt" class="form-control" aria-describedby="message" placeholder="Chat here">
-                  <button id="btn-message" class="btn btn-secondary">SEND</button>
+                  <!-- <button id="btn-message" class="btn btn-secondary">SEND</button> -->
               </div>
             </div>
         </div>
       </div>
     </body>
     <script>
-      const video = document.getElementById('live-video');
-      const configuration = {
-          'iceServers': [
-              { 'urls': 'stun:stun.l.google.com:19302' }
-          ]
-      };
-      const webSocket = new WebSocket('ws://' + window.location.host + '/ws/livestream/');
-      const peerConnection = new RTCPeerConnection(configuration);
+        const user = "{{ user.first_name}}"
+        const roomID = "{{ id }}";
+        const video = document.getElementById('live-video');
+        const ws_scheme = window.location.protocol === "https:" ? "wss" : "ws";
+        const configuration = { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] };
+        const webSocket = new WebSocket(ws_scheme + '://localhost:8001/ws/stream/' + roomID + '/');
+        const peerConnection = new RTCPeerConnection(configuration);
 
-      peerConnection.ontrack = function(event) {
-          video.srcObject = event.streams[0];
-      };
+        let isWebSocketOpen = false;
+        let remoteDescriptionSet = false;
+        let iceCandidateQueue = [];
 
-      peerConnection.onicecandidate = function(event) {
-          if (event.candidate) {
-              webSocket.send(JSON.stringify({
-                  'message': JSON.stringify({ 'candidate': event.candidate }),
-                  'type': 'webrtc'
-              }));
-          }
-      };
+        webSocket.onopen = () => {
+            isWebSocketOpen = true;
+            console.log('WebSocket connection established.');
+        };
 
-      webSocket.onmessage = function(e) {
-        const data = JSON.parse(e.data);
-        const user = data.user;  // Extract user data from the message
+        webSocket.onclose = () => {
+            isWebSocketOpen = false;
+            console.log('WebSocket connection closed.');
+        };
 
-        if (data.type === 'chat') {
-            const chatMessage = data.message;  // Get the chat message from the data
-            const messages = document.getElementById('chatbox');
-            const messageElement = document.createElement('li');
-            messageElement.textContent = user + ': ' + chatMessage;  // Display user data along with the message
-            messages.appendChild(messageElement);
-        } else {
-            const message = JSON.parse(data.message);
+        webSocket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
 
-            if (message.sdp) {
-                peerConnection.setRemoteDescription(new RTCSessionDescription(message.sdp))
-                    .then(() => {
-                        if (message.sdp.type === 'offer') {
-                            peerConnection.createAnswer()
-                                .then(answer => peerConnection.setLocalDescription(answer))
+        webSocket.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+
+            if (data.type === 'chat') {
+                const chatMessage = data.message;
+                const messages = document.getElementById('chatbox');
+                const messageElement = document.createElement('li');
+                messageElement.textContent = chatMessage;
+                messages.appendChild(messageElement);
+            } else if (data.type === 'webrtc') {
+                const message = JSON.parse(data.message);
+
+                if (message.sdp) {
+                    handleSDP(message.sdp);
+                } else if (message.candidate) {
+                    if (remoteDescriptionSet) {
+                        peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate))
+                            .then(() => console.log("ICE candidate added successfully"))
+                            .catch(error => console.error("Error adding received ICE candidate", error));
+                    } else {
+                        iceCandidateQueue.push(message.candidate);
+                    }
+                }
+            }
+        };
+
+        peerConnection.ontrack = function(event) {
+            console.log("Track event: ", event);
+            if (video.srcObject !== event.streams[0]) {
+                video.srcObject = event.streams[0];
+                console.log("Video source object set to event streams");
+            }
+        };
+
+        peerConnection.onicecandidate = function(event) {
+            if (event.candidate && isWebSocketOpen) {
+                webSocket.send(JSON.stringify({
+                    'message': JSON.stringify({ 'candidate': event.candidate }),
+                    'type': 'webrtc'
+                }));
+                console.log("Sent ICE candidate:", event.candidate);
+            }
+        };
+
+        function handleSDP(sdp) {
+        console.log("Received SDP:", sdp);
+        peerConnection.setRemoteDescription(new RTCSessionDescription(sdp))
+            .then(() => {
+                remoteDescriptionSet = true;
+                console.log("Remote description set");
+
+                if (sdp.type === 'offer') {
+                    console.log("Processing ICE candidate queue");
+                    while (iceCandidateQueue.length) {
+                        const candidate = iceCandidateQueue.shift();
+                        peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+                            .then(() => console.log("Queued ICE candidate added successfully"))
+                            .catch(error => console.error("Error adding queued ICE candidate", error));
+                    }
+
+                    console.log("Creating answer");
+                    peerConnection.createAnswer()
+                        .then(answer => {
+                            console.log("Setting local description:", answer);
+                            return peerConnection.setLocalDescription(answer)
                                 .then(() => {
+                                    console.log("Local description set successfully");
+                                    if (isWebSocketOpen) {
+                                        console.log("WebSocket is open, sending SDP answer");
+                                        webSocket.send(JSON.stringify({
+                                            'message': JSON.stringify({ 'sdp': peerConnection.localDescription }),
+                                            'type': 'webrtc'
+                                        }));
+                                        console.log("Sent SDP answer:", peerConnection.localDescription);
+                                    } else {
+                                        console.log("WebSocket is not open, waiting for WebSocket to open");
+                                        webSocket.onopen = () => {
+                                            isWebSocketOpen = true;
+                                            console.log("WebSocket opened, sending SDP answer");
+                                            webSocket.send(JSON.stringify({
+                                                'message': JSON.stringify({ 'sdp': peerConnection.localDescription }),
+                                                'type': 'webrtc'
+                                            }));
+                                            console.log("Sent SDP answer after WebSocket opened:", peerConnection.localDescription);
+                                        };
+                                    }
+                                })
+                                .catch(error => console.error("Error setting local description:", error));
+                        })
+                        .catch(error => console.error("Error creating answer", error));
+                }
+            })
+            .catch(error => console.error("Error setting remote description", error));
+    }
+
+
+
+
+        {% if user.account_type == 'Seller' %}
+        const btnToggleAudio = document.querySelector('#btn-toggle-audio');
+        const btnToggleVideo = document.querySelector('#btn-toggle-video');
+        if (navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                .then(function (stream) {
+                    video.srcObject = stream;
+
+                    var audioTracks = stream.getAudioTracks();
+                    var videoTracks = stream.getVideoTracks();
+
+                    audioTracks[0].enabed = true;
+                    videoTracks[0].enabed = true;
+                    console.log("Local stream obtained");
+
+                    btnToggleAudio.addEventListener('click', () => {
+                        audioTracks[0].enabled = !audioTracks[0].enabled;
+
+                        if(audioTracks[0].enabled) {
+                            btnToggleAudio.innerHTML = 'Audio Mute';
+
+                            return;
+                        }
+
+                        btnToggleAudio.innerHTML = 'Audio Unmute';
+                    });
+
+                    btnToggleVideo.addEventListener('click', () => {
+                        videoTracks[0].enabled = !videoTracks[0].enabled;
+
+                        if(videoTracks[0].enabled) {
+                            btnToggleVideo.innerHTML = 'Video Off';
+
+                            return;
+                        }
+
+                        btnToggleVideo.innerHTML = 'Video On';
+                    });
+
+                    stream.getTracks().forEach(track => {
+                        peerConnection.addTrack(track, stream);
+                        console.log("Added track to peer connection:", track);
+                    });
+
+                    peerConnection.createOffer()
+                        .then(offer => peerConnection.setLocalDescription(offer))
+                        .then(() => {
+                            if (isWebSocketOpen) {
+                                webSocket.send(JSON.stringify({
+                                    'message': JSON.stringify({ 'sdp': peerConnection.localDescription }),
+                                    'type': 'webrtc'
+                                }));
+                                console.log("Sent SDP offer:", peerConnection.localDescription);
+                            } else {
+                                webSocket.onopen = () => {
                                     webSocket.send(JSON.stringify({
                                         'message': JSON.stringify({ 'sdp': peerConnection.localDescription }),
                                         'type': 'webrtc'
                                     }));
-                                });
-                        }
-                    });
-            } else if (message.candidate) {
-                peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
-            }
+                                };
+                            }
+                        });
+                })
+                .catch(function (error) {
+                    console.log("Something went wrong!", error);
+                });
         }
-      };
+        {% endif %}
 
-
-
-      const input = document.getElementById('messageTxt');
-      input.addEventListener('keypress', function(e) {
-          if (e.key === 'Enter') {
-              const message = input.value;
-              webSocket.send(JSON.stringify({
-                  'message': message,
-                  'type': 'chat'
-              }));
-              input.value = '';
-          }
-      });
+        const input = document.getElementById('messageTxt');
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const message = input.value;
+                if (isWebSocketOpen) {
+                    webSocket.send(JSON.stringify({
+                        'message': user + ': ' + message,
+                        'type': 'chat'
+                    }));
+                    input.value = '';
+                }
+            }
+        });
     </script>
     <script>
       $(document).ready(function() {

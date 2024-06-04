@@ -1,13 +1,10 @@
 import json
-#from django.contrib.auth.models import User
-#from .models import PersonAccount
 from channels.generic.websocket import AsyncWebsocketConsumer
-#from django.contrib.auth.models import User
 
 class LiveStreamConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.room_name = 'livestream'
-        self.room_group_name = 'livestream_group'
+        self.room_name = self.scope['url_route']['kwargs']['room_name']
+        self.room_group_name = f'stream_{self.room_name}'
 
         await self.channel_layer.group_add(
             self.room_group_name,
@@ -22,41 +19,41 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
             self.channel_name
         )
 
-    async def receive(self, text_data):
-        text_data_json = json.loads(text_data)
-        message = text_data_json['message']
-        message_type = text_data_json.get('type', 'chat')  # Default to 'chat' if no type is provided
-        # user_data = self.scope.get('user').username  # Fetch user data (username)
-        user = self.scope.get('user')
-        if(user.first_name):
-            first_name = user.first_name
-        else:
-            first_name = 'Anonymous'
-        
-        # account_type = 'Seller'
-        # acc_profile = PersonAccount.objects.filter(user=user).first()
-        # if acc_profile:
-        #     account_type = acc_profile.usertype
+    async def receive(self, text_data=None, bytes_data=None):
+        if not text_data and not bytes_data:
+            raise ValueError("You must pass one of bytes_data or text_data")
 
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                'type': 'livestream_message',
-                'message': message,
-                'message_type': message_type,
-                'user': first_name,
-                # 'account_type' : account_type,
-            }
-        )
+        if text_data:
+            text_data_json = json.loads(text_data)
+            message = text_data_json['message']
+            message_type = text_data_json.get('type', 'chat')
+
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'livestream_message',
+                    'message': message,
+                    'message_type': message_type,
+                }
+            )
+        elif bytes_data:
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'livestream_message',
+                    'bytes': bytes_data
+                }
+            )
 
     async def livestream_message(self, event):
-        message = event['message']
-        message_type = event['message_type']
-        user_data = event.get('user', 'Anonymous')  # Get user data from the event or default to 'Anonymous'
-        # account_type = event['account_type']
-        await self.send(text_data=json.dumps({
-            'message': message,
-            'type': message_type,
-            'user': user_data,
-            # 'account_type' : account_type,
-        }))
+        if 'message' in event:
+            message = event['message']
+            message_type = event.get('message_type', 'chat')
+
+            await self.send(text_data=json.dumps({
+                'message': message,
+                'type': message_type,
+            }))
+        elif 'bytes' in event:
+            bytes_data = event['bytes']
+            await self.send(bytes_data=bytes_data)
