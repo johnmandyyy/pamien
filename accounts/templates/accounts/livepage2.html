@@ -193,7 +193,7 @@
       </div>
     </body>
     <script>
-        const user = "{{ user.first_name}}"
+        const user = "{{ user.first_name}}";
         const roomID = "{{ id }}";
         const video = document.getElementById('live-video');
         const ws_scheme = window.location.protocol === "https:" ? "wss" : "ws";
@@ -205,9 +205,16 @@
         let remoteDescriptionSet = false;
         let iceCandidateQueue = [];
 
+        webSocket.binaryType = 'arraybuffer';
+
         webSocket.onopen = () => {
             isWebSocketOpen = true;
             console.log('WebSocket connection established.');
+
+            // Only sellers create WebRTC offers
+            {% if user.account_type == 'Seller' %}
+            createWebRTCOffer();
+            {% endif %}
         };
 
         webSocket.onclose = () => {
@@ -220,40 +227,56 @@
         };
 
         webSocket.onmessage = function(e) {
-            const data = JSON.parse(e.data);
+            if (typeof e.data === 'string') {
+                const data = JSON.parse(e.data);
 
-            if (data.type === 'chat') {
-                const chatMessage = data.message;
-                const messages = document.getElementById('chatbox');
-                const messageElement = document.createElement('li');
-                messageElement.textContent = chatMessage;
-                messages.appendChild(messageElement);
-            } else if (data.type === 'webrtc') {
-                const message = JSON.parse(data.message);
+                if (data.type === 'chat') {
+                    // Handle chat messages
+                    const chatMessage = data.message;
+                    const messages = document.getElementById('chatbox');
+                    const messageElement = document.createElement('li');
+                    messageElement.textContent = chatMessage;
+                    messages.appendChild(messageElement);
+                } else if (data.type === 'webrtc') {
+                    // Handle WebRTC messages
+                    const message = JSON.parse(data.message);
 
-                if (message.sdp) {
-                    handleSDP(message.sdp);
-                } else if (message.candidate) {
-                    if (remoteDescriptionSet) {
-                        peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate))
-                            .then(() => console.log("ICE candidate added successfully"))
-                            .catch(error => console.error("Error adding received ICE candidate", error));
-                    } else {
-                        iceCandidateQueue.push(message.candidate);
+                    if (message.sdp) {
+                        // Handle SDP messages
+                        handleSDP(message.sdp);
+                    } else if (message.candidate) {
+                        // Handle ICE candidates
+                        if (remoteDescriptionSet) {
+                            peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate))
+                                .then(() => console.log("ICE candidate added successfully"))
+                                .catch(error => console.error("Error adding received ICE candidate", error));
+                        } else {
+                            iceCandidateQueue.push(message.candidate);
+                        }
                     }
                 }
+            } else {
+                // Handle binary data if necessary
+                console.log('Received binary data:', e.data);
             }
         };
 
         peerConnection.ontrack = function(event) {
+            // Handle incoming tracks
             console.log("Track event: ", event);
-            if (video.srcObject !== event.streams[0]) {
-                video.srcObject = event.streams[0];
-                console.log("Video source object set to event streams");
+            if (event.streams && event.streams[0]) {
+                console.log("Received remote stream:", event.streams[0]);
+                if (video.srcObject !== event.streams[0]) {
+                    video.srcObject = event.streams[0];
+                    console.log("Video source object set to remote stream");
+                }
+            } else {
+                console.log("No remote stream found in track event");
             }
         };
 
         peerConnection.onicecandidate = function(event) {
+            // Handle ICE candidates
             if (event.candidate && isWebSocketOpen) {
                 webSocket.send(JSON.stringify({
                     'message': JSON.stringify({ 'candidate': event.candidate }),
@@ -263,126 +286,139 @@
             }
         };
 
+        // Function to handle SDP messages
         function handleSDP(sdp) {
-        console.log("Received SDP:", sdp);
-        peerConnection.setRemoteDescription(new RTCSessionDescription(sdp))
-            .then(() => {
-                remoteDescriptionSet = true;
-                console.log("Remote description set");
+            console.log("Received SDP:", sdp);
 
-                if (sdp.type === 'offer') {
-                    console.log("Processing ICE candidate queue");
-                    while (iceCandidateQueue.length) {
-                        const candidate = iceCandidateQueue.shift();
-                        peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
-                            .then(() => console.log("Queued ICE candidate added successfully"))
-                            .catch(error => console.error("Error adding queued ICE candidate", error));
-                    }
+            if (sdp.type === 'offer') {
+                // Only sellers handle SDP offers
+                {% if user.account_type == 'Seller' %}
+                handleSDPOffer(sdp);
+                {% endif %}
+            } else if (sdp.type === 'answer') {
+                // Buyers handle SDP answers
+                handleSDPAnswer(sdp);
+            }
+        }
 
-                    console.log("Creating answer");
-                    peerConnection.createAnswer()
-                        .then(answer => {
-                            console.log("Setting local description:", answer);
-                            return peerConnection.setLocalDescription(answer)
-                                .then(() => {
-                                    console.log("Local description set successfully");
-                                    if (isWebSocketOpen) {
-                                        console.log("WebSocket is open, sending SDP answer");
-                                        webSocket.send(JSON.stringify({
-                                            'message': JSON.stringify({ 'sdp': peerConnection.localDescription }),
-                                            'type': 'webrtc'
-                                        }));
-                                        console.log("Sent SDP answer:", peerConnection.localDescription);
-                                    } else {
-                                        console.log("WebSocket is not open, waiting for WebSocket to open");
-                                        webSocket.onopen = () => {
-                                            isWebSocketOpen = true;
-                                            console.log("WebSocket opened, sending SDP answer");
-                                            webSocket.send(JSON.stringify({
-                                                'message': JSON.stringify({ 'sdp': peerConnection.localDescription }),
-                                                'type': 'webrtc'
-                                            }));
-                                            console.log("Sent SDP answer after WebSocket opened:", peerConnection.localDescription);
-                                        };
-                                    }
-                                })
-                                .catch(error => console.error("Error setting local description:", error));
-                        })
-                        .catch(error => console.error("Error creating answer", error));
-                }
-            })
-            .catch(error => console.error("Error setting remote description", error));
-    }
+        // Function to handle SDP offer
+        function handleSDPOffer(sdp) {
+            console.log("Received SDP offer:", sdp);
+            if (peerConnection.signalingState === "stable") {
+                peerConnection.setRemoteDescription(new RTCSessionDescription(sdp))
+                    .then(() => {
+                        console.log("Remote description set");
 
+                        console.log("Creating answer");
+                        peerConnection.createAnswer()
+                            .then(answer => {
+                                console.log("Setting local description:", answer);
+                                return peerConnection.setLocalDescription(answer)
+                                    .then(() => {
+                                        console.log("Local description set successfully");
+                                        sendSDPAnswer(peerConnection.localDescription);
+                                    })
+                                    .catch(error => console.error("Error setting local description:", error));
+                            })
+                            .catch(error => console.error("Error creating answer", error));
+                    })
+                    .catch(error => console.error("Error setting remote description", error));
+            } else {
+                console.log("Signaling state is not stable, deferring remote description setting");
+                setTimeout(() => handleSDPOffer(sdp), 1000); // Retry setting remote description after 1 second
+            }
+        }
 
+        // Function to handle SDP answer
+        function handleSDPAnswer(sdp) {
+            console.log("Received SDP answer:", sdp);
+            peerConnection.setRemoteDescription(new RTCSessionDescription(sdp))
+                .then(() => {
+                    remoteDescriptionSet = true;
+                    console.log("Remote description set");
+                })
+                .catch(error => console.error("Error setting remote description", error));
+        }
 
+        // Function to send SDP answer
+        function sendSDPAnswer(answer) {
+            if (isWebSocketOpen) {
+                console.log("WebSocket is open, sending SDP answer");
+                webSocket.send(JSON.stringify({
+                    'message': JSON.stringify({ 'sdp': answer }),
+                    'type': 'webrtc'
+                }));
+                console.log("Sent SDP answer:", answer);
+            } else {
+                console.log("WebSocket is not open, waiting for WebSocket to open");
+                webSocket.onopen = () => {
+                    isWebSocketOpen = true;
+                    console.log("WebSocket opened, sending SDP answer");
+                    webSocket.send(JSON.stringify({
+                        'message': JSON.stringify({ 'sdp': answer }),
+                        'type': 'webrtc'
+                    }));
+                    console.log("Sent SDP answer after WebSocket opened:", answer);
+                };
+            }
+        }
 
+        // Function to create WebRTC offer (for sellers only)
         {% if user.account_type == 'Seller' %}
         const btnToggleAudio = document.querySelector('#btn-toggle-audio');
         const btnToggleVideo = document.querySelector('#btn-toggle-video');
-        if (navigator.mediaDevices.getUserMedia) {
-            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                .then(function (stream) {
-                    video.srcObject = stream;
+        function createWebRTCOffer() {
+            if (navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                    .then(function (stream) {
+                        video.srcObject = stream;
 
-                    var audioTracks = stream.getAudioTracks();
-                    var videoTracks = stream.getVideoTracks();
+                        const audioTracks = stream.getAudioTracks();
+                        const videoTracks = stream.getVideoTracks();
 
-                    audioTracks[0].enabed = true;
-                    videoTracks[0].enabed = true;
-                    console.log("Local stream obtained");
+                        audioTracks[0].enabled = true;
+                        videoTracks[0].enabled = true;
+                        console.log("Local stream obtained");
 
-                    btnToggleAudio.addEventListener('click', () => {
-                        audioTracks[0].enabled = !audioTracks[0].enabled;
+                        btnToggleAudio.addEventListener('click', () => {
+                            audioTracks[0].enabled = !audioTracks[0].enabled;
+                            btnToggleAudio.innerHTML = audioTracks[0].enabled ? 'Audio Mute' : 'Audio Unmute';
+                        });
 
-                        if(audioTracks[0].enabled) {
-                            btnToggleAudio.innerHTML = 'Audio Mute';
+                        btnToggleVideo.addEventListener('click', () => {
+                            videoTracks[0].enabled = !videoTracks[0].enabled;
+                            btnToggleVideo.innerHTML = videoTracks[0].enabled ? 'Video Off' : 'Video On';
+                        });
 
-                            return;
-                        }
+                        stream.getTracks().forEach(track => {
+                            peerConnection.addTrack(track, stream);
+                            console.log("Added track to peer connection:", track);
+                        });
 
-                        btnToggleAudio.innerHTML = 'Audio Unmute';
-                    });
-
-                    btnToggleVideo.addEventListener('click', () => {
-                        videoTracks[0].enabled = !videoTracks[0].enabled;
-
-                        if(videoTracks[0].enabled) {
-                            btnToggleVideo.innerHTML = 'Video Off';
-
-                            return;
-                        }
-
-                        btnToggleVideo.innerHTML = 'Video On';
-                    });
-
-                    stream.getTracks().forEach(track => {
-                        peerConnection.addTrack(track, stream);
-                        console.log("Added track to peer connection:", track);
-                    });
-
-                    peerConnection.createOffer()
-                        .then(offer => peerConnection.setLocalDescription(offer))
-                        .then(() => {
-                            if (isWebSocketOpen) {
-                                webSocket.send(JSON.stringify({
-                                    'message': JSON.stringify({ 'sdp': peerConnection.localDescription }),
-                                    'type': 'webrtc'
-                                }));
-                                console.log("Sent SDP offer:", peerConnection.localDescription);
-                            } else {
-                                webSocket.onopen = () => {
+                        peerConnection.createOffer()
+                            .then(offer => peerConnection.setLocalDescription(offer))
+                            .then(() => {
+                                if (isWebSocketOpen) {
                                     webSocket.send(JSON.stringify({
                                         'message': JSON.stringify({ 'sdp': peerConnection.localDescription }),
                                         'type': 'webrtc'
                                     }));
-                                };
-                            }
-                        });
-                })
-                .catch(function (error) {
-                    console.log("Something went wrong!", error);
-                });
+                                    console.log("Sent SDP offer:", peerConnection.localDescription);
+                                } else {
+                                    webSocket.onopen = () => {
+                                        webSocket.send(JSON.stringify({
+                                            'message': JSON.stringify({ 'sdp': peerConnection.localDescription }),
+                                            'type': 'webrtc'
+                                        }));
+                                    };
+                                }
+                            })
+                            .catch(error => console.error("Error creating or sending offer", error));
+                    })
+                    .catch(function (error) {
+                        console.log("Something went wrong!", error);
+                    });
+            }
         }
         {% endif %}
 
